@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TURN Server Debugger</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      .log {
+        margin-top: 20px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        max-height: 300px;
+        overflow-y: scroll;
+      }
+      .log p {
+        margin: 5px 0;
+        font-size: 14px;
+      }
+      .log p.error {
+        color: red;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>TURN Server Debugger</h1>
+    <p>Check if the TURN server is active by monitoring the steps below:</p>
+
+    <div>
+      <label for="turn-url">TURN Server URL:</label>
+      <input type="text" id="turn-url" placeholder="turn:example.com:3478" />
+      <br /><br />
+      <label for="turn-username">Username:</label>
+      <input type="text" id="turn-username" placeholder="Enter username" />
+      <br /><br />
+      <label for="turn-password">Password:</label>
+      <input type="password" id="turn-password" placeholder="Enter password" />
+      <br /><br />
+      <button id="check-turn-btn">Check TURN Server</button>
+    </div>
+
+    <div class="log" id="log"></div>
+
+    <script>
+      const logMessage = (message, isError = false) => {
+        const logContainer = document.getElementById("log");
+        const p = document.createElement("p");
+        p.textContent = message;
+        if (isError) {
+          p.classList.add("error");
+        }
+        logContainer.appendChild(p);
+      };
+
+      const checkTURNServer = (turnConfig, timeout = 5000) => {
+        return new Promise(async (resolve, reject) => {
+          logMessage("Initializing TURN server check...");
+
+          const pc = new RTCPeerConnection({ iceServers: [turnConfig] });
+          let promiseResolved = false;
+
+          // Stop waiting after X milliseconds and display the result
+          setTimeout(() => {
+            if (promiseResolved) return;
+            promiseResolved = true;
+            logMessage("Timeout reached. TURN server is not active.");
+            resolve(false);
+          }, timeout);
+
+          // Create a bogus data channel
+          logMessage("Creating data channel...");
+          pc.createDataChannel("");
+
+          // Listen for candidates
+          pc.onicecandidate = (ice) => {
+            if (promiseResolved || ice === null || ice.candidate === null)
+              return;
+
+            logMessage(`ICE candidate found: ${ice.candidate.type}`);
+            if (ice.candidate.type === "relay") {
+              promiseResolved = true;
+              logMessage("Relay candidate found! TURN server is active.");
+              resolve(true);
+            }
+          };
+
+          // Create offer and set local description
+          try {
+            logMessage("Creating and setting local offer...");
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            logMessage("Offer created and local description set.");
+          } catch (error) {
+            logMessage(`Error during offer creation: ${error.message}`, true);
+            reject(error);
+          }
+        });
+      };
+
+      document
+        .getElementById("check-turn-btn")
+        .addEventListener("click", () => {
+          const turnURL = document.getElementById("turn-url").value;
+          const username = document.getElementById("turn-username").value;
+          const password = document.getElementById("turn-password").value;
+
+          if (!turnURL || !username || !password) {
+            logMessage("Please fill in all fields!", true);
+            return;
+          }
+
+          checkTURNServer({
+            urls: [turnURL],
+            username: username,
+            credential: password,
+            credentialType: "password",
+          })
+            .then((active) =>
+              logMessage(
+                "Final result: Is the TURN server active? " +
+                  (active
+                    ? "Yes :)"
+                    : "Not yet...keep trying ;)\n-------------------\n")
+              )
+            )
+            .catch((e) => logMessage(`Error: ${e.message}`, true));
+        });
+    </script>
+  </body>
+</html>
